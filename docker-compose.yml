@@ -1,0 +1,95 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+services:
+
+  db:
+    extends:
+      file: ./config/docker/compose/mariadb.yml
+      service: mariadb
+
+  # Keycloak OAuth Server
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2.5
+    container_name: keycloak-oauth
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: dev-file
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+    ports:
+      - "9000:8080"
+    command: start-dev
+
+  fineract:
+    extends:
+      file: ./config/docker/compose/fineract.yml
+      service: fineract
+    image: fineract-local:dev
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    env_file:
+      - ./config/docker/env/fineract.env
+      - ./config/docker/env/fineract-common.env
+      - ./config/docker/env/fineract-mariadb.env
+      - ./config/docker/env/fineract-oauth.env
+      - ./config/docker/env/fineract-oauth-provider.env
+      - ./config/docker/env/fineract-oauth-resource-server.env
+    environment:
+      # OAuth Configuration - Override env files
+      FINERACT_SECURITY_BASICAUTH_ENABLED: false
+      FINERACT_SECURITY_OAUTH_ENABLED: true
+      FINERACT_SERVER_OAUTH_RESOURCE_URL: http://localhost:9000/auth/realms/fineract
+      # Frontend OAuth Client
+      FINERACT_SECURITY_OAUTH2_CLIENTS_FRONTEND_ID: frontend-app
+      FINERACT_SECURITY_OAUTH2_CLIENTS_FRONTEND_SCOPES: read,write
+      FINERACT_SECURITY_OAUTH2_CLIENTS_FRONTEND_GRANTS: authorization_code,refresh_token
+      FINERACT_SECURITY_OAUTH2_CLIENTS_FRONTEND_REDIRECT: http://localhost:3000/callback
+      FINERACT_SECURITY_OAUTH2_CLIENTS_FRONTEND_CONSENT: false
+      # SSL Configuration
+      FINERACT_SERVER_SSL_ENABLED: false
+      # OAuth2 Resource Server Configuration
+      FINERACT_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:9000/realms/fineract
+      FINERACT_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://localhost:9000/realms/fineract/protocol/openid-connect/certs
+      # Spring standard overrides (ensure issuer matches token 'iss')
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:9000/realms/fineract
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://localhost:9000/realms/fineract/protocol/openid-connect/certs
+      FINERACT_SECURITY_OAUTH2_RESOURCESERVER_JWT_AUDIENCE: account
+      FINERACT_SECURITY_OAUTH2_RESOURCESERVER_JWT_CLOCK_SKEW: 60
+      # OAuth2 Client Configuration
+      FINERACT_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_CLIENT_ID: community-app
+      FINERACT_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_CLIENT_SECRET: real-client-secret-123
+      FINERACT_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_SCOPE: openid,profile,email
+      FINERACT_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_AUTHORIZATION_GRANT_TYPE: authorization_code
+      FINERACT_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_REDIRECT_URI: http://localhost:3000/callback
+      # JWT Claims Mapping
+      FINERACT_SECURITY_OAUTH2_RESOURCESERVER_JWT_CLAIM_TO_PRINCIPAL: preferred_username
+      FINERACT_SECURITY_OAUTH2_RESOURCESERVER_JWT_CLAIM_TO_AUTHORITIES: realm_access.roles
+      # DEBUG Logging
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: DEBUG
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY_OAUTH2: DEBUG
+      LOGGING_LEVEL_ORG_APACHE_FINERACT_INFRASTRUCTURE_SECURITY: DEBUG
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: INFO
+
